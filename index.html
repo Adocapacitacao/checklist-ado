@@ -1,0 +1,1030 @@
+<!doctype html>
+<html lang="pt-BR" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Checklist Diário - Caminhão + Carreta</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    * { font-family: 'Inter', sans-serif; }
+    .radio-option input:checked + span { background: #1e40af; color: #fff; border-color: #1e40af; }
+    .radio-option input:checked + span.nok { background: #dc2626; border-color: #dc2626; }
+    .radio-option input:checked + span.na { background: #6b7280; border-color: #6b7280; }
+    .section-card { animation: slideIn 0.25s ease-out; }
+    @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .critical-badge { animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+  </style>
+</head>
+
+<body class="h-full bg-slate-100 overflow-auto">
+  <div id="app" class="h-full w-full"></div>
+
+<script>
+/** =========================
+ *  CONFIG + STORAGE
+ *  ========================= */
+const defaultConfig = {
+  form_title: 'Checklist Diário',
+  company_name: 'Gestão de Frota',
+  primary_color: '#1e3a5f',
+  secondary_color: '#ffffff',
+  text_color: '#1e293b',
+  accent_color: '#2563eb',
+  danger_color: '#dc2626'
+};
+
+let config = { ...defaultConfig };
+
+const STORAGE_KEY = 'ado_checklist_inspecoes_v1';
+const MAX_RECORDS = 999;
+
+function loadInspections() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    console.warn('Erro ao carregar inspeções:', e);
+    return [];
+  }
+}
+
+function saveInspections(list) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+}
+
+let savedInspections = loadInspections();
+let currentRecordCount = savedInspections.length;
+
+/** =========================
+ *  STATE
+ *  ========================= */
+let currentSection = 0;
+let isBlocked = false;
+let isSubmitting = false;
+let showMediaModal = false;
+
+let mediaFiles = []; // [{name,type,size,preview,timestamp}]
+
+let formData = {
+  driver_name: '',
+  truck_plate: '',
+  trailer_plate: '',
+  km_initial: '',
+  trailer_type: '',
+  inspection_date: new Date().toISOString().split('T')[0],
+  responses: {},
+  notes: ''
+};
+
+const sections = [
+  { id: 'identification', title: '📋 Identificação', icon: '🚛', items: [] },
+  {
+    id: 'critical', title: '🔴 Itens Críticos', icon: '⚠️', critical: true,
+    items: [
+      { id: 'brake_service', label: 'Freio de serviço', category: 'Sistema de Freios' },
+      { id: 'brake_parking', label: 'Freio estacionário', category: 'Sistema de Freios' },
+      { id: 'air_hoses', label: 'Mangueiras de ar', category: 'Sistema de Freios' },
+      { id: 'abs_system', label: 'Sistema ABS', category: 'Sistema de Freios' },
+      { id: 'connection_truck_trailer', label: 'Conexão cavalo/carreta', category: 'Sistema de Freios' },
+      { id: 'tires_front', label: 'Pneus dianteiros', category: 'Rodas e Pneus' },
+      { id: 'tires_rear', label: 'Pneus traseiros', category: 'Rodas e Pneus' },
+      { id: 'tires_trailer', label: 'Pneus carreta', category: 'Rodas e Pneus' },
+      { id: 'wheel_bolts', label: 'Parafusos das rodas', category: 'Rodas e Pneus' },
+      { id: 'fifth_wheel', label: 'Quinta roda', category: 'Engate' },
+      { id: 'king_pin', label: 'Pino rei', category: 'Engate' },
+      { id: 'weight_distribution', label: 'Distribuição de peso', category: 'Segurança da Carga' },
+      { id: 'proper_lashing', label: 'Amarração adequada', category: 'Segurança da Carga' },
+      { id: 'gross_weight', label: 'Peso bruto conforme', category: 'Segurança da Carga' }
+    ]
+  },
+  {
+    id: 'cabin', title: '🚗 Cabine', icon: '🪟',
+    items: [
+      { id: 'windshield', label: 'Para-brisa' },
+      { id: 'wipers', label: 'Limpadores de para-brisa' },
+      { id: 'mirrors_left', label: 'Espelho retrovisor esquerdo' },
+      { id: 'mirrors_right', label: 'Espelho retrovisor direito' },
+      { id: 'horn', label: 'Buzina' },
+      { id: 'seat_belt_driver', label: 'Cinto de segurança motorista' },
+      { id: 'seat_condition', label: 'Condição do banco' },
+      { id: 'dashboard_lights', label: 'Luzes do painel' },
+      { id: 'speedometer', label: 'Velocímetro' },
+      { id: 'tachograph', label: 'Tacógrafo' },
+      { id: 'air_conditioning', label: 'Ar condicionado' },
+      { id: 'cabin_cleanliness', label: 'Limpeza da cabine' }
+    ]
+  },
+  {
+    id: 'lights', title: '💡 Sistema de Iluminação', icon: '🔦',
+    items: [
+      { id: 'headlights_low', label: 'Faróis baixos' },
+      { id: 'headlights_high', label: 'Faróis altos' },
+      { id: 'turn_signals_front', label: 'Setas dianteiras' },
+      { id: 'turn_signals_rear', label: 'Setas traseiras' },
+      { id: 'brake_lights', label: 'Luzes de freio' },
+      { id: 'reverse_lights', label: 'Luzes de ré' },
+      { id: 'side_markers', label: 'Luzes laterais' },
+      { id: 'clearance_lights', label: 'Luzes de posição' },
+      { id: 'hazard_lights', label: 'Pisca alerta' },
+      { id: 'trailer_lights', label: 'Iluminação da carreta' },
+      { id: 'reflectors', label: 'Refletores' }
+    ]
+  },
+  {
+    id: 'engine', title: '🔧 Motor e Mecânica', icon: '⚙️',
+    items: [
+      { id: 'engine_oil', label: 'Nível de óleo do motor' },
+      { id: 'coolant_level', label: 'Nível do líquido de arrefecimento' },
+      { id: 'power_steering', label: 'Direção hidráulica' },
+      { id: 'fuel_level', label: 'Nível de combustível' },
+      { id: 'battery_condition', label: 'Condição da bateria' },
+      { id: 'belts_condition', label: 'Correias' },
+      { id: 'air_filter', label: 'Filtro de ar' },
+      { id: 'exhaust_system', label: 'Sistema de escape' },
+      { id: 'engine_noises', label: 'Ruídos anormais do motor' },
+      { id: 'fuel_leaks', label: 'Vazamentos de combustível' },
+      { id: 'oil_leaks', label: 'Vazamentos de óleo' }
+    ]
+  },
+  {
+    id: 'suspension', title: '🔩 Suspensão e Direção', icon: '🛞',
+    items: [
+      { id: 'shock_absorbers', label: 'Amortecedores' },
+      { id: 'leaf_springs', label: 'Molas' },
+      { id: 'steering_play', label: 'Folga na direção' },
+      { id: 'tie_rods', label: 'Barras de direção' },
+      { id: 'air_suspension', label: 'Suspensão pneumática' },
+      { id: 'chassis_condition', label: 'Condição do chassi' }
+    ]
+  },
+  {
+    id: 'trailer_specific', title: '🚛 Carreta Específico', icon: '📦',
+    items: [
+      { id: 'trailer_floor', label: 'Assoalho da carreta' },
+      { id: 'side_panels', label: 'Painéis laterais' },
+      { id: 'rear_doors', label: 'Portas traseiras' },
+      { id: 'door_locks', label: 'Travas das portas' },
+      { id: 'canvas_condition', label: 'Lona/Sider (se aplicável)' },
+      { id: 'canvas_mechanism', label: 'Mecanismo do Sider' },
+      { id: 'grade_condition', label: 'Grade baixa (se aplicável)' },
+      { id: 'stakes', label: 'Fueiros' },
+      { id: 'tarp_system', label: 'Sistema de encerado' },
+      { id: 'landing_gear', label: 'Pés de apoio' },
+      { id: 'mudguards', label: 'Para-lamas' }
+    ]
+  },
+  {
+    id: 'safety', title: '🦺 Equipamentos de Segurança', icon: '🔥',
+    items: [
+      { id: 'fire_extinguisher', label: 'Extintor de incêndio' },
+      { id: 'extinguisher_validity', label: 'Validade do extintor' },
+      { id: 'warning_triangles', label: 'Triângulos de sinalização' },
+      { id: 'wheel_chocks', label: 'Calços de roda' },
+      { id: 'first_aid_kit', label: 'Kit de primeiros socorros' },
+      { id: 'reflective_vest', label: 'Colete refletivo' },
+      { id: 'emergency_tools', label: 'Ferramentas de emergência' },
+      { id: 'spare_tire', label: 'Estepe' },
+      { id: 'jack', label: 'Macaco' },
+      { id: 'wheel_wrench', label: 'Chave de roda' }
+    ]
+  },
+  {
+    id: 'documents', title: '📄 Documentação', icon: '📑',
+    items: [
+      { id: 'crlv_truck', label: 'CRLV do cavalo' },
+      { id: 'crlv_trailer', label: 'CRLV da carreta' },
+      { id: 'driver_license', label: 'CNH do motorista' },
+      { id: 'antt', label: 'ANTT' },
+      { id: 'insurance', label: 'Seguro' },
+      { id: 'cargo_manifest', label: 'Manifesto de carga' }
+    ]
+  }
+];
+
+/** =========================
+ *  HELPERS
+ *  ========================= */
+function getTotalItems() {
+  return sections.reduce((acc, s) => acc + s.items.length, 0);
+}
+function getAnsweredItems() {
+  return Object.keys(formData.responses).length;
+}
+function getProgress() {
+  const total = getTotalItems();
+  if (total === 0) return 0;
+  return Math.round((getAnsweredItems() / total) * 100);
+}
+function checkCriticalFailure() {
+  const criticalSection = sections.find(s => s.critical);
+  if (!criticalSection) return false;
+  return criticalSection.items.some(it => formData.responses[it.id] === 'nok');
+}
+function groupByCategory(items) {
+  const groups = {};
+  items.forEach(item => {
+    const cat = item.category || 'Geral';
+    if (!groups[cat]) groups[cat] = [];
+    groups[cat].push(item);
+  });
+  return groups;
+}
+
+function showToast(message, type) {
+  const toast = document.createElement('div');
+  toast.className = `fixed top-4 right-4 z-50 px-6 py-4 rounded-xl shadow-lg text-white font-medium ${
+    type === 'error' ? 'bg-red-600' : 'bg-green-600'
+  }`;
+  toast.innerHTML = `${type === 'error' ? '❌' : '✅'} ${message}`;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
+}
+
+function validateForm() {
+  const missing = [];
+  if (!formData.driver_name) missing.push('Nome do Motorista');
+  if (!formData.truck_plate) missing.push('Placa do Cavalo');
+  if (!formData.trailer_plate) missing.push('Placa da Carreta');
+  if (!formData.km_initial) missing.push('KM Inicial');
+  if (!formData.trailer_type) missing.push('Tipo de Carreta');
+
+  if (missing.length > 0) {
+    showToast(`Preencha os campos: ${missing.join(', ')}`, 'error');
+    return false;
+  }
+  return true;
+}
+
+/** =========================
+ *  RENDER
+ *  ========================= */
+function renderApp() {
+  const app = document.getElementById('app');
+
+  if (isBlocked) {
+    app.innerHTML = renderBlockedScreen();
+    return;
+  }
+
+  app.innerHTML = `
+    <div class="min-h-full w-full" style="background: linear-gradient(135deg, ${config.primary_color} 0%, #0f172a 100%);">
+      <header class="sticky top-0 z-50 backdrop-blur-lg bg-white/10 border-b border-white/20">
+        <div class="max-w-4xl mx-auto px-4 py-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h1 class="text-xl font-bold text-white">${config.form_title}</h1>
+              <p class="text-sm text-blue-200">${config.company_name}</p>
+            </div>
+            <div class="flex items-center gap-3">
+              <div class="text-right">
+                <p class="text-xs text-blue-200">Progresso</p>
+                <p class="text-lg font-bold text-white">${getProgress()}%</p>
+              </div>
+              <div class="w-16 h-16 relative">
+                <svg class="w-16 h-16 transform -rotate-90">
+                  <circle cx="32" cy="32" r="28" stroke="rgba(255,255,255,0.2)" stroke-width="4" fill="none"></circle>
+                  <circle cx="32" cy="32" r="28" stroke="#22c55e" stroke-width="4" fill="none"
+                    stroke-dasharray="175.93"
+                    stroke-dashoffset="${175.93 - (175.93 * getProgress() / 100)}"
+                    stroke-linecap="round"></circle>
+                </svg>
+                <span class="absolute inset-0 flex items-center justify-center text-white text-sm font-bold">
+                  ${getAnsweredItems()}/${getTotalItems()}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex gap-1 mt-4 overflow-x-auto pb-2">
+            ${sections.map((s, i) => `
+              <button onclick="goToSection(${i})"
+                class="flex-shrink-0 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                  currentSection === i ? 'bg-white text-slate-800 shadow-lg' : 'bg-white/10 text-white hover:bg-white/20'
+                } ${s.critical ? 'ring-2 ring-red-400' : ''}">
+                ${s.icon} ${s.title.replace(/[^\w\s]/gi, '').trim()}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+      </header>
+
+      <main class="max-w-4xl mx-auto px-4 py-6">
+        ${renderCurrentSection()}
+        ${renderRecordsPanel()}
+      </main>
+
+      ${showMediaModal ? renderMediaModal() : ''}
+
+      <footer class="sticky bottom-0 bg-white/10 backdrop-blur-lg border-t border-white/20 p-4">
+        <div class="max-w-4xl mx-auto flex justify-between items-center gap-4">
+          <button onclick="prevSection()"
+            class="px-6 py-3 rounded-xl font-medium transition-all ${
+              currentSection === 0 ? 'bg-white/10 text-white/50 cursor-not-allowed' : 'bg-white/20 text-white hover:bg-white/30'
+            }" ${currentSection === 0 ? 'disabled' : ''}>
+            ← Anterior
+          </button>
+
+          <button onclick="toggleMediaModal()"
+            class="px-4 py-3 rounded-xl font-medium transition-all bg-cyan-500 text-white hover:bg-cyan-600 shadow-lg flex items-center gap-2">
+            📸 ${mediaFiles.length} Mídia
+          </button>
+
+          <span class="text-white text-sm flex-1 text-center">
+            Seção ${currentSection + 1} de ${sections.length}
+          </span>
+
+          ${currentSection === sections.length - 1 ? `
+            <button onclick="submitForm()"
+              class="px-6 py-3 rounded-xl font-bold transition-all bg-green-500 text-white hover:bg-green-600 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              ${isSubmitting ? 'disabled' : ''}>
+              ${isSubmitting ? '⏳ Salvando...' : '✅ Finalizar'}
+            </button>
+          ` : `
+            <button onclick="nextSection()"
+              class="px-6 py-3 rounded-xl font-bold transition-all bg-white text-slate-800 hover:bg-blue-50 shadow-lg">
+              Próximo →
+            </button>
+          `}
+        </div>
+      </footer>
+    </div>
+  `;
+}
+
+function renderCurrentSection() {
+  const section = sections[currentSection];
+
+  if (section.id === 'identification') return renderIdentificationSection();
+
+  return `
+    <div class="section-card bg-white rounded-2xl shadow-xl overflow-hidden">
+      <div class="p-6 border-b ${section.critical ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}">
+        <div class="flex items-center gap-3">
+          <span class="text-3xl">${section.icon}</span>
+          <div>
+            <h2 class="text-xl font-bold ${section.critical ? 'text-red-800' : 'text-slate-800'}">${section.title}</h2>
+            ${section.critical ? `
+              <span class="inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded-full critical-badge">
+                ⚠️ Itens críticos - NOK bloqueia veículo
+              </span>
+            ` : ''}
+          </div>
+        </div>
+      </div>
+      <div class="p-6">
+        ${section.items[0]?.category ? renderGroupedItems(section) : renderSimpleItems(section)}
+      </div>
+    </div>
+  `;
+}
+
+function renderIdentificationSection() {
+  return `
+    <div class="section-card bg-white rounded-2xl shadow-xl overflow-hidden">
+      <div class="p-6 border-b bg-blue-50 border-blue-200">
+        <div class="flex items-center gap-3">
+          <span class="text-3xl">🚛</span>
+          <h2 class="text-xl font-bold text-blue-800">📋 Identificação</h2>
+        </div>
+      </div>
+
+      <div class="p-6 space-y-6">
+        <div class="grid md:grid-cols-2 gap-6">
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-2">👤 Nome do Motorista *</label>
+            <input type="text" value="${escapeHtml(formData.driver_name)}"
+              onchange="updateField('driver_name', this.value)"
+              class="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
+              placeholder="Digite o nome completo">
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-2">📅 Data da Inspeção *</label>
+            <input type="date" value="${formData.inspection_date}"
+              onchange="updateField('inspection_date', this.value)"
+              class="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all">
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-2">🚛 Placa do Cavalo *</label>
+            <input type="text" value="${escapeHtml(formData.truck_plate)}"
+              onchange="updateField('truck_plate', this.value.toUpperCase())"
+              class="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all uppercase"
+              placeholder="ABC-1234" maxlength="8">
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-2">📦 Placa da Carreta *</label>
+            <input type="text" value="${escapeHtml(formData.trailer_plate)}"
+              onchange="updateField('trailer_plate', this.value.toUpperCase())"
+              class="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all uppercase"
+              placeholder="XYZ-5678" maxlength="8">
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-2">📏 KM Inicial *</label>
+            <input type="number" value="${escapeHtml(formData.km_initial)}"
+              onchange="updateField('km_initial', this.value)"
+              class="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
+              placeholder="000000">
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-2">🚚 Tipo de Carreta *</label>
+            <div class="flex gap-4">
+              <label class="flex-1 cursor-pointer">
+                <input type="radio" name="trailer_type" value="grade_baixa"
+                  ${formData.trailer_type === 'grade_baixa' ? 'checked' : ''}
+                  onchange="updateField('trailer_type', 'grade_baixa')" class="sr-only peer">
+                <div class="p-4 border-2 border-slate-200 rounded-xl text-center peer-checked:border-blue-500 peer-checked:bg-blue-50 transition-all">
+                  <span class="text-2xl">🔲</span>
+                  <p class="font-medium text-slate-700 mt-1">Grade Baixa</p>
+                </div>
+              </label>
+              <label class="flex-1 cursor-pointer">
+                <input type="radio" name="trailer_type" value="sider"
+                  ${formData.trailer_type === 'sider' ? 'checked' : ''}
+                  onchange="updateField('trailer_type', 'sider')" class="sr-only peer">
+                <div class="p-4 border-2 border-slate-200 rounded-xl text-center peer-checked:border-blue-500 peer-checked:bg-blue-50 transition-all">
+                  <span class="text-2xl">📦</span>
+                  <p class="font-medium text-slate-700 mt-1">Sider</p>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div class="md:col-span-2">
+            <label class="block text-sm font-medium text-slate-700 mb-2">📝 Observações (opcional)</label>
+            <textarea rows="3"
+              onchange="updateField('notes', this.value)"
+              class="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
+              placeholder="Ex.: Ruído no freio, pneu com desgaste, etc.">${escapeHtml(formData.notes || '')}</textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderGroupedItems(section) {
+  const groups = groupByCategory(section.items);
+  return Object.entries(groups).map(([category, items]) => `
+    <div class="mb-8 last:mb-0">
+      <h3 class="text-lg font-semibold text-slate-700 mb-4 pb-2 border-b-2 border-slate-200">${category}</h3>
+      <div class="space-y-3">
+        ${items.map(item => renderChecklistItem(item, !!section.critical)).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderSimpleItems(section) {
+  return `
+    <div class="space-y-3">
+      ${section.items.map(item => renderChecklistItem(item, !!section.critical)).join('')}
+    </div>
+  `;
+}
+
+function renderChecklistItem(item, isCritical) {
+  const currentValue = formData.responses[item.id] || '';
+  const bg =
+    currentValue === 'nok' ? 'border-red-300 bg-red-50' :
+    currentValue === 'ok'  ? 'border-green-300 bg-green-50' :
+    currentValue === 'na'  ? 'border-gray-300 bg-gray-50' :
+                             'border-slate-200 bg-white hover:border-slate-300';
+
+  return `
+    <div class="flex items-center justify-between p-4 rounded-xl border-2 transition-all ${bg}">
+      <div class="flex items-center gap-3">
+        <span class="text-lg">
+          ${currentValue === 'ok' ? '✅' : currentValue === 'nok' ? '❌' : currentValue === 'na' ? '⚪' : '⬜'}
+        </span>
+        <span class="font-medium text-slate-700">${item.label}</span>
+        ${isCritical ? '<span class="text-red-500 text-xs font-bold">CRÍTICO</span>' : ''}
+      </div>
+
+      <div class="flex gap-2">
+        <label class="radio-option cursor-pointer">
+          <input type="radio" name="${item.id}" value="ok"
+            ${currentValue === 'ok' ? 'checked' : ''}
+            onchange="updateResponse('${item.id}', 'ok', ${isCritical})" class="sr-only">
+          <span class="inline-block px-4 py-2 border-2 border-green-300 rounded-lg text-sm font-medium text-green-700 transition-all hover:bg-green-100">✅ OK</span>
+        </label>
+
+        <label class="radio-option cursor-pointer">
+          <input type="radio" name="${item.id}" value="nok"
+            ${currentValue === 'nok' ? 'checked' : ''}
+            onchange="updateResponse('${item.id}', 'nok', ${isCritical})" class="sr-only">
+          <span class="nok inline-block px-4 py-2 border-2 border-red-300 rounded-lg text-sm font-medium text-red-700 transition-all hover:bg-red-100">❌ NOK</span>
+        </label>
+
+        <label class="radio-option cursor-pointer">
+          <input type="radio" name="${item.id}" value="na"
+            ${currentValue === 'na' ? 'checked' : ''}
+            onchange="updateResponse('${item.id}', 'na', ${isCritical})" class="sr-only">
+          <span class="na inline-block px-4 py-2 border-2 border-gray-300 rounded-lg text-sm font-medium text-gray-600 transition-all hover:bg-gray-100">N/A</span>
+        </label>
+      </div>
+    </div>
+  `;
+}
+
+function renderRecordsPanel() {
+  return `
+    <div class="mt-6 bg-white/95 rounded-2xl shadow-xl overflow-hidden">
+      <div class="p-5 border-b bg-slate-50 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <h3 class="text-lg font-bold text-slate-800">📚 Registros salvos</h3>
+          <p class="text-sm text-slate-500">Salvo localmente neste navegador. Total: <strong>${savedInspections.length}</strong></p>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          <button onclick="exportJSON()" class="px-4 py-2 rounded-xl bg-slate-800 text-white text-sm font-semibold hover:bg-slate-900">
+            ⬇️ Exportar JSON
+          </button>
+          <button onclick="clearAll()" class="px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700">
+            🗑️ Limpar tudo
+          </button>
+        </div>
+      </div>
+
+      <div class="p-5">
+        ${savedInspections.length === 0 ? `
+          <div class="text-center py-8 text-slate-500">
+            Nenhum registro ainda. Finalize uma inspeção para aparecer aqui.
+          </div>
+        ` : `
+          <div class="grid gap-3">
+            ${savedInspections.slice().reverse().slice(0, 10).map(r => `
+              <div class="border rounded-xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                <div>
+                  <div class="font-bold text-slate-800">
+                    ${r.status === 'BLOQUEADO' ? '🚫' : '✅'} ${escapeHtml(r.truck_plate)} + ${escapeHtml(r.trailer_plate)}
+                  </div>
+                  <div class="text-sm text-slate-600">
+                    ${formatDate(r.inspection_date)} • Motorista: ${escapeHtml(r.driver_name)} • KM: ${escapeHtml(String(r.km_initial))}
+                  </div>
+                  <div class="text-xs text-slate-500">
+                    Mídia: ${r.media_count || 0} • Criado em: ${new Date(r.created_at).toLocaleString('pt-BR')}
+                  </div>
+                </div>
+
+                <div class="flex gap-2">
+                  <button onclick="viewRecord('${r.id}')" class="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">
+                    👁️ Ver
+                  </button>
+                  <button onclick="deleteRecord('${r.id}')" class="px-3 py-2 rounded-lg bg-slate-200 text-slate-800 text-sm font-semibold hover:bg-slate-300">
+                    🗑️ Excluir
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+
+          ${savedInspections.length > 10 ? `
+            <div class="text-xs text-slate-500 mt-3">
+              Mostrando últimos 10. Use “Exportar JSON” para baixar todos.
+            </div>
+          ` : ''}
+        `}
+      </div>
+    </div>
+  `;
+}
+
+function renderMediaModal() {
+  return `
+    <div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.7);">
+      <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+        <div class="bg-gradient-to-r from-cyan-500 to-blue-600 p-6 flex items-center justify-between">
+          <h3 class="text-xl font-bold text-white flex items-center gap-2">📸 Galeria de Mídia (${mediaFiles.length})</h3>
+          <button onclick="toggleMediaModal()" class="text-white hover:bg-white/20 rounded-lg p-2 transition-all">✕</button>
+        </div>
+
+        <div class="p-6 overflow-y-auto flex-1">
+          ${mediaFiles.length === 0 ? `
+            <div class="text-center py-12">
+              <span class="text-4xl mb-2 block">📁</span>
+              <p class="text-slate-500 font-medium">Nenhuma mídia adicionada</p>
+              <p class="text-slate-400 text-sm">Use o botão abaixo para adicionar fotos ou vídeos</p>
+            </div>
+          ` : `
+            <div class="grid grid-cols-3 gap-3">
+              ${mediaFiles.map((file, idx) => `
+                <div class="relative group">
+                  ${file.type.startsWith('image/') ? `
+                    <div class="bg-slate-200 rounded-lg overflow-hidden aspect-square">
+                      <img src="${file.preview}" alt="Media ${idx}" class="w-full h-full object-cover group-hover:scale-110 transition-transform">
+                    </div>
+                  ` : `
+                    <div class="bg-slate-900 rounded-lg overflow-hidden aspect-square flex items-center justify-center">
+                      <div class="text-center px-2">
+                        <span class="text-2xl block mb-1">🎥</span>
+                        <p class="text-white text-xs font-medium break-words">${escapeHtml(file.name)}</p>
+                      </div>
+                    </div>
+                  `}
+                  <button onclick="removeMedia(${idx})" class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600">✕</button>
+                </div>
+              `).join('')}
+            </div>
+          `}
+        </div>
+
+        <div class="bg-slate-50 border-t p-4 flex gap-3">
+          <label class="flex-1">
+            <input type="file" accept="image/*,video/*" multiple onchange="addMedia(event)" class="hidden">
+            <span class="block px-4 py-3 bg-blue-600 text-white rounded-xl font-medium text-center hover:bg-blue-700 cursor-pointer transition-all">
+              + Adicionar Mídia
+            </span>
+          </label>
+          <button onclick="toggleMediaModal()" class="px-4 py-3 bg-slate-200 text-slate-700 rounded-xl font-medium hover:bg-slate-300 transition-all">Fechar</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderBlockedScreen() {
+  const nokItems = [];
+  const criticalSection = sections.find(s => s.critical);
+  if (criticalSection) {
+    criticalSection.items.forEach(item => {
+      if (formData.responses[item.id] === 'nok') nokItems.push(item);
+    });
+  }
+
+  return `
+    <div class="min-h-full w-full flex items-center justify-center p-4" style="background: linear-gradient(135deg, #7f1d1d 0%, #450a0a 100%);">
+      <div class="max-w-lg w-full bg-white rounded-3xl shadow-2xl overflow-hidden">
+        <div class="bg-red-600 p-8 text-center">
+          <div class="w-24 h-24 mx-auto bg-white rounded-full flex items-center justify-center mb-4">
+            <span class="text-5xl">🚫</span>
+          </div>
+          <h1 class="text-3xl font-bold text-white">VEÍCULO BLOQUEADO</h1>
+        </div>
+
+        <div class="p-8">
+          <div class="bg-red-50 border-2 border-red-200 rounded-xl p-6 mb-6">
+            <p class="text-red-800 font-medium text-center">
+              🚨 Foi identificado item crítico em condição <strong>NÃO CONFORME</strong>.
+            </p>
+          </div>
+
+          <div class="mb-6">
+            <h3 class="font-bold text-slate-800 mb-3">Itens reprovados:</h3>
+            <ul class="space-y-2">
+              ${nokItems.map(item => `
+                <li class="flex items-center gap-2 p-3 bg-red-100 rounded-lg">
+                  <span class="text-red-600">❌</span>
+                  <span class="font-medium text-red-800">${item.label}</span>
+                  <span class="text-xs text-red-600 ml-auto">${item.category || 'Crítico'}</span>
+                </li>
+              `).join('')}
+            </ul>
+          </div>
+
+          <div class="bg-amber-50 border-2 border-amber-200 rounded-xl p-4 mb-6">
+            <p class="text-amber-800 text-sm">
+              <strong>⚠️ Ação necessária:</strong> Comunique imediatamente a manutenção ou gestão de frota antes de operar este veículo.
+            </p>
+          </div>
+
+          <div class="flex gap-4">
+            <button onclick="returnToChecklist()"
+              class="flex-1 px-6 py-3 bg-slate-200 text-slate-700 rounded-xl font-medium hover:bg-slate-300 transition-all">
+              ← Voltar ao Checklist
+            </button>
+            <button onclick="submitBlockedForm()"
+              class="flex-1 px-6 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all disabled:opacity-50"
+              ${isSubmitting ? 'disabled' : ''}>
+              ${isSubmitting ? '⏳ Salvando...' : '📝 Registrar Ocorrência'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/** =========================
+ *  ACTIONS
+ *  ========================= */
+function updateField(field, value) {
+  formData[field] = value;
+}
+
+function updateResponse(itemId, value, isCritical) {
+  formData.responses[itemId] = value;
+  if (isCritical && value === 'nok') isBlocked = true;
+  renderApp();
+}
+
+function goToSection(index) {
+  currentSection = index;
+  renderApp();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function nextSection() {
+  if (currentSection < sections.length - 1) {
+    currentSection++;
+    renderApp();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+}
+function prevSection() {
+  if (currentSection > 0) {
+    currentSection--;
+    renderApp();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+}
+
+function returnToChecklist() {
+  isBlocked = false;
+  renderApp();
+}
+
+function toggleMediaModal() {
+  showMediaModal = !showMediaModal;
+  renderApp();
+}
+
+function addMedia(event) {
+  const files = Array.from(event.target.files || []);
+  files.forEach(file => {
+    if (mediaFiles.length >= 50) {
+      showToast('Máximo de 50 arquivos atingido', 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      mediaFiles.push({
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        preview: e.target.result,
+        timestamp: new Date().toISOString()
+      });
+      renderApp();
+    };
+    reader.readAsDataURL(file);
+  });
+  event.target.value = '';
+}
+
+function removeMedia(index) {
+  mediaFiles.splice(index, 1);
+  renderApp();
+}
+
+async function submitForm() {
+  if (checkCriticalFailure()) {
+    isBlocked = true;
+    renderApp();
+    return;
+  }
+  if (!validateForm()) return;
+
+  if (currentRecordCount >= MAX_RECORDS) {
+    showToast(`Limite de ${MAX_RECORDS} registros atingido. Exclua inspeções antigas.`, 'error');
+    return;
+  }
+
+  isSubmitting = true;
+  renderApp();
+
+  const record = {
+    id: Date.now().toString(),
+    driver_name: formData.driver_name,
+    truck_plate: formData.truck_plate,
+    trailer_plate: formData.trailer_plate,
+    km_initial: formData.km_initial,
+    trailer_type: formData.trailer_type,
+    inspection_date: formData.inspection_date,
+    responses: formData.responses,
+    critical_failure: false,
+    status: 'APROVADO',
+    created_at: new Date().toISOString(),
+    notes: formData.notes || '',
+    media_count: mediaFiles.length,
+    media_files: mediaFiles // cuidado: pode ficar pesado
+  };
+
+  savedInspections.push(record);
+  saveInspections(savedInspections);
+  currentRecordCount = savedInspections.length;
+
+  isSubmitting = false;
+  showSuccessModal();
+}
+
+async function submitBlockedForm() {
+  if (!validateForm()) return;
+
+  if (currentRecordCount >= MAX_RECORDS) {
+    showToast(`Limite de ${MAX_RECORDS} registros atingido. Exclua inspeções antigas.`, 'error');
+    return;
+  }
+
+  isSubmitting = true;
+  renderApp();
+
+  const record = {
+    id: Date.now().toString(),
+    driver_name: formData.driver_name,
+    truck_plate: formData.truck_plate,
+    trailer_plate: formData.trailer_plate,
+    km_initial: formData.km_initial,
+    trailer_type: formData.trailer_type,
+    inspection_date: formData.inspection_date,
+    responses: formData.responses,
+    critical_failure: true,
+    status: 'BLOQUEADO',
+    created_at: new Date().toISOString(),
+    notes: 'Veículo bloqueado por item crítico NOK',
+    media_count: mediaFiles.length,
+    media_files: mediaFiles
+  };
+
+  savedInspections.push(record);
+  saveInspections(savedInspections);
+  currentRecordCount = savedInspections.length;
+
+  isSubmitting = false;
+  showBlockedSuccessModal();
+}
+
+function showSuccessModal() {
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <div class="min-h-full w-full flex items-center justify-center p-4" style="background: linear-gradient(135deg, #166534 0%, #14532d 100%);">
+      <div class="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 text-center">
+        <div class="w-24 h-24 mx-auto bg-green-100 rounded-full flex items-center justify-center mb-6">
+          <span class="text-5xl">✅</span>
+        </div>
+        <h2 class="text-2xl font-bold text-slate-800 mb-4">Inspeção Concluída!</h2>
+        <p class="text-slate-600 mb-6">O checklist foi salvo com sucesso (LocalStorage). O veículo está liberado para operação.</p>
+        <div class="bg-green-50 rounded-xl p-4 mb-6">
+          <p class="text-green-800 font-medium">🚛 ${escapeHtml(formData.truck_plate)} + ${escapeHtml(formData.trailer_plate)}</p>
+          <p class="text-green-600 text-sm">Motorista: ${escapeHtml(formData.driver_name)}</p>
+        </div>
+        <button onclick="resetForm()" class="w-full px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all">
+          Nova Inspeção
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function showBlockedSuccessModal() {
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <div class="min-h-full w-full flex items-center justify-center p-4" style="background: linear-gradient(135deg, #7f1d1d 0%, #450a0a 100%);">
+      <div class="max-w-md w-full bg-white rounded-3xl shadow-2xl p-8 text-center">
+        <div class="w-24 h-24 mx-auto bg-red-100 rounded-full flex items-center justify-center mb-6">
+          <span class="text-5xl">📋</span>
+        </div>
+        <h2 class="text-2xl font-bold text-slate-800 mb-4">Ocorrência Registrada</h2>
+        <p class="text-slate-600 mb-6">A não conformidade foi salva (LocalStorage). Aguarde resolução da manutenção.</p>
+        <div class="bg-red-50 rounded-xl p-4 mb-6">
+          <p class="text-red-800 font-medium">🚫 VEÍCULO BLOQUEADO</p>
+          <p class="text-red-600 text-sm">${escapeHtml(formData.truck_plate)} + ${escapeHtml(formData.trailer_plate)}</p>
+        </div>
+        <button onclick="resetForm()" class="w-full px-6 py-3 bg-slate-600 text-white rounded-xl font-bold hover:bg-slate-700 transition-all">
+          Nova Inspeção
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function resetForm() {
+  formData = {
+    driver_name: '',
+    truck_plate: '',
+    trailer_plate: '',
+    km_initial: '',
+    trailer_type: '',
+    inspection_date: new Date().toISOString().split('T')[0],
+    responses: {},
+    notes: ''
+  };
+  currentSection = 0;
+  isBlocked = false;
+  isSubmitting = false;
+  mediaFiles = [];
+  showMediaModal = false;
+  savedInspections = loadInspections();
+  currentRecordCount = savedInspections.length;
+  renderApp();
+}
+
+/** =========================
+ *  RECORDS ACTIONS
+ *  ========================= */
+function exportJSON() {
+  const data = loadInspections();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `inspecoes-checklist-ado-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  showToast('Arquivo JSON exportado!', 'success');
+}
+
+function clearAll() {
+  if (!confirm('Tem certeza que deseja apagar TODOS os registros salvos neste navegador?')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  savedInspections = [];
+  currentRecordCount = 0;
+  showToast('Registros removidos.', 'success');
+  renderApp();
+}
+
+function deleteRecord(id) {
+  if (!confirm('Excluir este registro?')) return;
+  savedInspections = loadInspections().filter(r => r.id !== id);
+  saveInspections(savedInspections);
+  currentRecordCount = savedInspections.length;
+  showToast('Registro excluído.', 'success');
+  renderApp();
+}
+
+function viewRecord(id) {
+  const rec = loadInspections().find(r => r.id === id);
+  if (!rec) return showToast('Registro não encontrado.', 'error');
+
+  const respCount = rec.responses ? Object.keys(rec.responses).length : 0;
+
+  alert(
+    `STATUS: ${rec.status}\n` +
+    `DATA: ${formatDate(rec.inspection_date)}\n` +
+    `MOTORISTA: ${rec.driver_name}\n` +
+    `CAVALO: ${rec.truck_plate}\n` +
+    `CARRETA: ${rec.trailer_plate}\n` +
+    `KM: ${rec.km_initial}\n` +
+    `TIPO: ${rec.trailer_type}\n` +
+    `RESPONDIDOS: ${respCount}\n` +
+    `MÍDIA: ${rec.media_count || 0}\n` +
+    `OBS: ${rec.notes || ''}`
+  );
+}
+
+/** =========================
+ *  UTILS
+ *  ========================= */
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+function formatDate(iso) {
+  try {
+    // iso yyyy-mm-dd
+    const [y,m,d] = String(iso).split('-');
+    if (!y || !m || !d) return iso;
+    return `${d}/${m}/${y}`;
+  } catch {
+    return iso;
+  }
+}
+
+/** =========================
+ *  EXPOSE GLOBALS
+ *  ========================= */
+window.updateField = updateField;
+window.updateResponse = updateResponse;
+window.goToSection = goToSection;
+window.nextSection = nextSection;
+window.prevSection = prevSection;
+window.returnToChecklist = returnToChecklist;
+window.toggleMediaModal = toggleMediaModal;
+window.addMedia = addMedia;
+window.removeMedia = removeMedia;
+window.submitForm = submitForm;
+window.submitBlockedForm = submitBlockedForm;
+window.resetForm = resetForm;
+
+window.exportJSON = exportJSON;
+window.clearAll = clearAll;
+window.deleteRecord = deleteRecord;
+window.viewRecord = viewRecord;
+
+/** INIT */
+renderApp();
+</script>
+</body>
+</html>
