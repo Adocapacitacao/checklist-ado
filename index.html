@@ -825,7 +825,7 @@ async function submitForm() {
 
   // ✅ SALVAR NO SUPABASE (em vez de localStorage)
 const { data, error } = await supabase
-  .from('inspecoes') // <-- troque para o nome exato da sua tabela no Supabase
+  .from('Inspeções')
   .insert([{
     driver_name: record.driver_name,
     truck_plate: record.truck_plate,
@@ -833,7 +833,7 @@ const { data, error } = await supabase
     km_initial: record.km_initial,
     trailer_type: record.trailer_type,
     inspection_date: record.inspection_date,
-    responses: record.responses, // se sua coluna for JSON/JSONB
+    responses: record.responses,
     critical_failure: record.critical_failure,
     status: record.status,
     created_at: record.created_at,
@@ -843,11 +843,15 @@ const { data, error } = await supabase
 
 if (error) {
   console.error(error);
-  showToast('Erro ao salvar no Supabase. Verifique permissões (RLS) e nome da tabela.', 'error');
+  showToast("Erro ao salvar no Supabase.", "error");
   isSubmitting = false;
   renderApp();
   return;
 }
+
+currentRecordCount++;
+isSubmitting = false;
+showSuccessModal();
 
 // opcional: atualizar contador local só para a UI
 currentRecordCount = currentRecordCount + 1;
