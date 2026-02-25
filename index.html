@@ -31,12 +31,17 @@
    *  SUPABASE
    **************************************************/
   const SUPABASE_URL = "https://amdkknfnrlarnjfiqwjj.supabase.co";
-  const SUPABASE_ANON_KEY = "sb_publishable_XUImV7DiWB82_NYFM5P3oA_z69Daui3";
-  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const SUPABASE_ANON_KEY = "sb_publishable_XUImV7DiWB82_NYFM5P3oA_z69Daui3";
 
-  // Nome da tabela no Supabase (conforme seu print: Pública.Inspeções)
-  const TABLE_INSPECOES = "Inspeções";
+// Evita erro se script carregar 2x
+if (!window.__supabaseClient) {
+  window.__supabaseClient = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY
+  );
+}
 
+const supabase = window.__supabaseClient;
   // Se o seu Supabase tiver RLS sem policy, SELECT/INSERT vai falhar.
   // O app vai cair no fallback localStorage automaticamente.
 
