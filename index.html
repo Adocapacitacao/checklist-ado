@@ -59,8 +59,8 @@ function loadInspections() {
   }
 }
 
-function saveInspections(list) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+async function saveInspections(lista) {
+    console.log("Salvamento local desativado. Usando Supabase.");
 }
 
 let savedInspections = loadInspections();
@@ -823,9 +823,37 @@ async function submitForm() {
     media_files: mediaFiles // cuidado: pode ficar pesado
   };
 
-  savedInspections.push(record);
-  saveInspections(savedInspections);
-  currentRecordCount = savedInspections.length;
+  // ✅ SALVAR NO SUPABASE (em vez de localStorage)
+const { data, error } = await supabase
+  .from('inspecoes') // <-- troque para o nome exato da sua tabela no Supabase
+  .insert([{
+    driver_name: record.driver_name,
+    truck_plate: record.truck_plate,
+    trailer_plate: record.trailer_plate,
+    km_initial: record.km_initial,
+    trailer_type: record.trailer_type,
+    inspection_date: record.inspection_date,
+    responses: record.responses, // se sua coluna for JSON/JSONB
+    critical_failure: record.critical_failure,
+    status: record.status,
+    created_at: record.created_at,
+    notes: record.notes,
+    media_count: record.media_count
+  }]);
+
+if (error) {
+  console.error(error);
+  showToast('Erro ao salvar no Supabase. Verifique permissões (RLS) e nome da tabela.', 'error');
+  isSubmitting = false;
+  renderApp();
+  return;
+}
+
+// opcional: atualizar contador local só para a UI
+currentRecordCount = currentRecordCount + 1;
+
+isSubmitting = false;
+showSuccessModal();
 
   isSubmitting = false;
   showSuccessModal();
