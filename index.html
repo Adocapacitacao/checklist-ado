@@ -23,26 +23,43 @@
 <body class="h-full bg-slate-100 overflow-auto">
   <div id="app" class="h-full w-full"></div>
 
-  <!-- Supabase -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- supabaseClient -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabaseClient/supabaseClient-js@2"></script>
 
   <script>
   /**************************************************
-   *  SUPABASE
+   *  supabaseClient
    **************************************************/
-  const SUPABASE_URL = "https://amdkknfnrlarnjfiqwjj.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_XUImV7DiWB82_NYFM5P3oA_z69Daui3";
+  const supabaseClient_URL = "https://amdkknfnrlarnjfiqwjj.supabaseClient.co";
+  const supabaseClient_ANON_KEY = "sb_publishable_XUImV7DiWB82_NYFM5P3oA_z69Daui3";
 
-// Evita erro se script carregar 2x
-if (!window.__supabaseClient) {
-  window.__supabaseClient = window.supabase.createClient(
-    SUPABASE_URL,
-    SUPABASE_ANON_KEY
-  );
+  // Cria 1x só, mesmo que o script carregue novamente
+  if (!window.__supabaseClient) {
+    window.__supabaseClient = window.supabaseClient.createClient(
+      supabaseClient_URL,
+      supabaseClient_ANON_KEY
+    );
+  }
+
+  // ⚠️ NÃO use "const supabaseClient" (pra não dar conflito)
+  const supabaseClient = window.__supabaseClient;
+
+  /**************************************************
+   *  CONFIG
+   **************************************************/
+  const defaultConfig = {
+    form_title: 'Checklist Diário',
+    company_name: 'Gestão de Frota',
+    primary_color: '#1e3a5f',
+    secondary_color: '#ffffff',
+    text_color: '#1e293b',
+    accent_color: '#2563eb',
+    danger_color: '#dc2626'
+  };
 }
 
-const supabase = window.__supabaseClient;
-  // Se o seu Supabase tiver RLS sem policy, SELECT/INSERT vai falhar.
+const supabaseClient = window.__supabaseClient;
+  // Se o seu supabaseClient tiver RLS sem policy, SELECT/INSERT vai falhar.
   // O app vai cair no fallback localStorage automaticamente.
 
   /**************************************************
@@ -92,10 +109,10 @@ const supabase = window.__supabaseClient;
   let isSubmitting = false;
   let showMediaModal = false;
 
-  // origem do painel de registros: "supabase" | "local"
-  let recordsSource = "supabase";
+  // origem do painel de registros: "supabaseClient" | "local"
+  let recordsSource = "supabaseClient";
 
-  // mídia fica só na UI (não sobe para Supabase neste modelo)
+  // mídia fica só na UI (não sobe para supabaseClient neste modelo)
   let mediaFiles = []; // [{name,type,size,preview,timestamp}]
 
   let formData = {
@@ -234,7 +251,7 @@ const supabase = window.__supabaseClient;
     }
   ];
 
-  let savedInspections = [];      // sempre alimentado por Supabase (ou local fallback)
+  let savedInspections = [];      // sempre alimentado por supabaseClient (ou local fallback)
   let currentRecordCount = 0;
 
   /**************************************************
@@ -288,12 +305,12 @@ const supabase = window.__supabaseClient;
   }
 
   /**************************************************
-   *  SUPABASE CRUD (COM FALLBACK LOCAL)
+   *  supabaseClient CRUD (COM FALLBACK LOCAL)
    **************************************************/
   async function refreshInspections() {
-    // tenta Supabase
+    // tenta supabaseClient
     try {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseClient
         .from(TABLE_INSPECOES)
         .select('*')
         .order('created_at', { ascending: false })
@@ -301,12 +318,12 @@ const supabase = window.__supabaseClient;
 
       if (error) throw error;
 
-      recordsSource = "supabase";
+      recordsSource = "supabaseClient";
       savedInspections = Array.isArray(data) ? data : [];
       currentRecordCount = savedInspections.length;
       return;
     } catch (e) {
-      console.warn('Falha ao ler Supabase (provável RLS/policy):', e?.message || e);
+      console.warn('Falha ao ler supabaseClient (provável RLS/policy):', e?.message || e);
 
       // fallback local
       recordsSource = "local";
@@ -317,19 +334,19 @@ const supabase = window.__supabaseClient;
   }
 
   async function insertInspection(payload) {
-    // tenta Supabase
+    // tenta supabaseClient
     try {
-      const { data, error } = await supabase
-        .from(TABLE_INSPECOES)
-        .insert([payload])
-        .select('*')
-        .single();
+      const { data, error } = await supabaseClient
+  .from(TABLE_INSPECOES)
+  .insert([payload])
+  .select('*')
+  .single();
 
       if (error) throw error;
-      recordsSource = "supabase";
+      recordsSource = "supabaseClient";
       return { ok: true, row: data };
     } catch (e) {
-      console.warn('Falha ao inserir Supabase (provável RLS/policy):', e?.message || e);
+      console.warn('Falha ao inserir supabaseClient (provável RLS/policy):', e?.message || e);
 
       // fallback local (mantém o app funcionando)
       recordsSource = "local";
@@ -342,14 +359,14 @@ const supabase = window.__supabaseClient;
   }
 
   async function deleteInspectionById(id) {
-    // Supabase
-    if (recordsSource === "supabase") {
+    // supabaseClient
+    if (recordsSource === "supabaseClient") {
       try {
-        const { error } = await supabase.from(TABLE_INSPECOES).delete().eq('id', id);
+        const { error } = await supabaseClient.from(TABLE_INSPECOES).delete().eq('id', id);
         if (error) throw error;
         return { ok: true };
       } catch (e) {
-        return { ok: false, message: e?.message || 'Erro ao excluir no Supabase' };
+        return { ok: false, message: e?.message || 'Erro ao excluir no supabaseClient' };
       }
     }
 
@@ -379,7 +396,7 @@ const supabase = window.__supabaseClient;
                 <h1 class="text-xl font-bold text-white">${config.form_title}</h1>
                 <p class="text-sm text-blue-200">${config.company_name}</p>
                 <p class="text-xs text-blue-100 mt-1">
-                  Registros: <strong>${recordsSource === "supabase" ? "Supabase" : "Local"}</strong>
+                  Registros: <strong>${recordsSource === "supabaseClient" ? "supabaseClient" : "Local"}</strong>
                 </p>
               </div>
 
@@ -644,7 +661,7 @@ const supabase = window.__supabaseClient;
           <div>
             <h3 class="text-lg font-bold text-slate-800">📚 Registros</h3>
             <p class="text-sm text-slate-500">
-              Origem: <strong>${recordsSource === "supabase" ? "Supabase" : "Local"}</strong> • Total: <strong>${savedInspections.length}</strong>
+              Origem: <strong>${recordsSource === "supabaseClient" ? "supabaseClient" : "Local"}</strong> • Total: <strong>${savedInspections.length}</strong>
             </p>
           </div>
 
@@ -892,7 +909,7 @@ const supabase = window.__supabaseClient;
     }
 
     await refreshInspections();
-    showSuccessModal(res.fallback ? "Salvo localmente (fallback)." : "Salvo no Supabase com sucesso!");
+    showSuccessModal(res.fallback ? "Salvo localmente (fallback)." : "Salvo no supabaseClient com sucesso!");
   }
 
   async function submitBlockedForm() {
@@ -928,7 +945,7 @@ const supabase = window.__supabaseClient;
     }
 
     await refreshInspections();
-    showBlockedSuccessModal(res.fallback ? "Ocorrência salva localmente (fallback)." : "Ocorrência salva no Supabase!");
+    showBlockedSuccessModal(res.fallback ? "Ocorrência salva localmente (fallback)." : "Ocorrência salva no supabaseClient!");
   }
 
   function showSuccessModal(msg) {
